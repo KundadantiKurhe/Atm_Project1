@@ -1,0 +1,236 @@
+// gradle helper methods for Coretest installAll, build, dist, publish & group/version naming convention
+// -----------------------------------------------------------------------------------------------------
+
+import java.text.SimpleDateFormat
+import static groovy.io.FileType.FILES
+
+// check for new branding: if new plugin "git-maven-sync" with group prefix == 'com.gi-de' is used then use package prefix 'com.gi_de'
+//   otherwise for old plugin "git-maven-sync" with group prefix == 'com.gide' then use same package prefix: 'com.gide'
+def (groupRootSeparated1, groupRootSeparated2) = groupRoot.tokenize('.')
+if ( groupRootSeparated2 == 'gi-de') {
+  groupRootSeparated2 = 'gi_de'
+}
+
+apply plugin: 'com.' + groupRootSeparated2 + '.ms.gradle.plugins.toolinstaller'
+
+project.ext.deleteArchiveBeforeExtract=false
+project.ext.groupVariant=''
+project.ext.currentMinorVersion = (minorVersion.toInteger() - 1).toString() // current minorVersion; Note: minorVersion is auto-incrementated in gradle plugin gidepublish
+
+def File versionPropsFile = project.file('version.properties')
+def String buildnumberFilename = '.buildnumber'
+def versionProps = new Properties()
+def lastPublishedVariant = ''
+def boolean installationTask = false
+def storeVariant = ''
+
+// evaluate <lastPublishedVariant>
+if ( versionPropsFile.exists() ) {
+  versionProps.load(new FileInputStream(versionPropsFile))
+  lastPublishedVariant = versionProps["lastPublishedVariant"]
+  if (lastPublishedVariant == null) {
+    lastPublishedVariant = ''
+  }
+  if (lastPublishedVariant != '') {
+    // if leading '.' is missing then add it
+    if (lastPublishedVariant[0] != '.') {
+      lastPublishedVariant = '.' + lastPublishedVariant
+    }
+	// clear info <lastPublishedVariant> for coretest main branches ( we use this variant info for product branches only )
+    if ( (lastPublishedVariant == '.master') ||
+	     (lastPublishedVariant == '.dev_main') ||
+	     (lastPublishedVariant.endsWith('-develop')) ||
+         (lastPublishedVariant == '.exec_recommended') ) {
+        lastPublishedVariant=''
+	}
+  }
+  lastPublishedVariant.replace('/','-')
+}
+
+// check for any installation task
+String calledTasks = project.gradle.startParameter.taskNames
+if ( calledTasks.toLowerCase().contains('install') ) {
+  installationTask=true
+}
+
+// set variables <groupVariant> for later usage in build.gradle
+if ( installationTask ) {
+  // for installation: take always stored <lastPublishedVariant>
+  project.ext.groupVariant = lastPublishedVariant
+} else {
+  if ( project.hasProperty('variant') ) {
+    // for build: 1) take property <variant> if it exists
+    project.ext.groupVariant = project.variant
+	storeVariant = project.variant
+    // if not empty and leading '.' is missing then add it
+    if ( (project.ext.groupVariant != '') && (project.ext.groupVariant[0] != '.') ) {
+      project.ext.groupVariant = '.' + project.ext.groupVariant
+    }
+  } else {
+    // for build: 2) take git branch if property <variant> does not exist
+    def szVariant = project.gitBranch.replace('/','-')
+    project.ext.groupVariant = '.' + szVariant
+    storeVariant = szVariant
+    // clear info <project.ext.groupVariant> for coretest main branches ( we use this variant info for product branches )
+    if ( (project.ext.groupVariant == '.master') ||
+      (project.ext.groupVariant == '.dev_main') ||
+      (project.ext.groupVariant.endsWith('-develop')) ||
+      (project.ext.groupVariant == '.exec_recommended') ) {
+      project.ext.groupVariant=''
+    }
+  }
+}
+
+// set buildnumber to minorVersion for ant build task
+// return: true if file '.buildnumber' exists before, otherwise false
+private boolean setBuildNumber(String filename){
+  def boolean ret = false
+  def File propsFile = project.file(filename)
+  def props = new Properties()
+  if( propsFile.exists() ) {
+    props.load(new FileInputStream(propsFile))
+    ret = true
+  }
+  props["build.number"] = minorVersion
+  props.store(new FileOutputStream(propsFile), "Build Number for releases. Do not edit!")
+  return ret
+}
+
+// show project, version & variant info for matching project
+def boolean firstTaskExecuted = false
+gradle.taskGraph.beforeTask { Task task ->
+  if ( ! firstTaskExecuted ) {
+    // println "task: $task ; project: $project.name" // for debug-purposes
+	
+    def String _task = task
+	// check for matching project
+	// first condition: search for project-name because for top level build we have task-info: task ':<project>:<task>'
+	// second condition: search for no further ":" beginning with character-index 7 because for a local build we have task-info: task ':<task>' ( here only one single ':' )
+	if ( (_task.contains(project.name)) || (! _task.substring(7).contains(':')) ) {
+	  firstTaskExecuted = true
+      println "----------------------------------------------"
+	  if ( installationTask ) {
+        // clear version for install tasks; otherwise we have errors for installation of the same tool/project
+        project.version = ''
+		
+		// show project, version & variant info
+        if (project.hasProperty('currentProjectVersion')) {
+          println "Project, Version for Installation, Group Variant:"
+	      println "$project.name , $currentProjectVersion , \"" + groupVariant + "\""
+	    } else {
+	      println "Project, Group Variant:"
+	      println "$project.name , \"" + groupVariant + "\""
+	    }
+	  } else {
+        println "Project, Version, Group Variant:"
+	    println "$project.name , $version , \"" + groupVariant + "\""
+	  }
+      println "----------------------------------------------"
+    }
+  }
+}
+
+project.installAll.doLast {
+  // remove old hash files ( unequal current project version )
+  if (project.hasProperty('currentProjectVersion')) {
+    new File("$projectDir").eachFileRecurse(FILES) {
+      if(it.name.endsWith('dist.zip.sha1') && it.name.toLowerCase().contains("$project.name".toLowerCase())) {
+        if (!it.name.contains("$currentProjectVersion")) {
+          it.delete()
+		  println 'file deleted: ' + it.name
+	    }
+      }
+    }
+  } else { // construct currentProjectVersion
+    new File("$projectDir").eachFileRecurse(FILES) {
+      if(it.name.endsWith('dist.zip.sha1') && it.name.toLowerCase().contains("$project.name".toLowerCase())) {
+	    def _curVersion =  "$majorVersion.$currentMinorVersion$versionSuffix"
+        if (!it.name.contains("$_curVersion")) {
+          it.delete()
+		  println 'file deleted: ' + it.name
+	    }
+      }
+    }  
+  }
+}
+
+project.saveMinorVersion.doLast {
+  // store <lastPublishedVariant>
+  if ( versionPropsFile.exists() ) {
+    versionProps.load(new FileInputStream(versionPropsFile))
+    if ( (storeVariant != '') && (storeVariant[0] == '.') ) {
+      storeVariant = storeVariant.substring(1)  // remove leading '.'
+    }
+    versionProps["lastPublishedVariant"] = storeVariant
+    new FileOutputStream(versionPropsFile).withStream {
+      versionProps.store(it, 'version properties - Do not edit "minorVersion" & "lastPublishedVariant": these properties are set by gradle publish automatically')
+    }	
+  }
+}
+
+// execute ant build task for applets & TRex
+task antBuild(type:Exec) {
+  group = 'Build'
+  description = 'ant release'
+  def boolean buildNumberFileExistsBefore = false
+  
+  // input files which are scanned automatically for changes
+  inputs.files fileTree(dir: ".", includes: ['**/*.java', '**/*.opt', '**/*.xml', '**/*.ini'])
+  outputs.upToDateWhen {
+    return true
+  }
+  
+  // bugfix for returning error code back to gradle
+  commandLine 'cmd', '/V:ON', '/c', ('../../tools/ant/bin/ant.bat').replace('/', '\\'), 'release', '&', 'exit', '/b', '!ERRORLEVEL!'
+  errorOutput = new ByteArrayOutputStream()
+  ignoreExitValue = true
+
+  doFirst {
+    buildNumberFileExistsBefore = setBuildNumber(buildnumberFilename)  // set buildnumber (temporary) for ant build 
+  }
+
+  doLast {
+    int err =  execResult.exitValue.toInteger()
+    println "ant return value: " + err
+
+    // delete file buildnumberFilename, if it is just created for the ant build.
+    // If the file buildnumberFilename already exists before then do nothing	
+	if( ! buildNumberFileExistsBefore ) {
+	  println 'delete temporary file .buildnumber after ant build'
+      delete buildnumberFilename
+    }
+
+	if ( err ) { // ant error check
+      if(errorOutput.size() != 0) {
+        println "ant error output: " + errorOutput.toString()
+	  }
+	  // clean.execute()  // gradle clean
+      throw new GradleException('error in ant execution')
+    }
+  }
+}
+
+task installJar4Deployment(type:Exec) {
+  group = 'Build'
+  description = "Extract jar in deployment folder tools/$project.name"
+  workingDir "../../tools/$project.name"
+  commandLine 'cmd', '/c', ("gradlew installAll").replace('/', '\\')
+  errorOutput = new ByteArrayOutputStream()
+  doLast {
+    if(errorOutput.size() != 0){
+    	println errorOutput.toString()
+    	throw new GradleException("error in tools/$project.name thrown from command gradlew installAll")
+    } else {
+        println "Continue main build.gradle script now."
+    }	
+  } 
+  
+task startTestEclipse(type:Exec) {
+	group = 'IDE'
+	description = "Open Eclipse and load the specific test suite project for Test Case Development"  
+	doFirst{
+	workingDir = file('../../../')
+	commandLine = ['cmd','/C','start','startTestEclipse.bat',"$project.name"]	
+	}
+}
+}

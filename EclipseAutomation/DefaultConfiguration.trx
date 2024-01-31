@@ -1,0 +1,37 @@
+; Please make sure the trx file of the target on which test cases to be executed is included at the top here
+; Example: for the project cx_jc305_upgrade, target JcsST33G_Std(Build number 4) include the trx file as shown below:
+; #include S:\jc_test\projects\cx_jc305_upgrade\JcsST33G_Std\build_004\TestConfig_standard_T0.trx
+
+[TestCases]
+;
+; .classpath=..\dist\deploy\gp_basic_cm_t01opReadyOnly.jar;..\lib\gp_basic_cm_t01opReadyOnly.jar;..\..\shared\lib\shared_common.jar;..\lib\shared_common.jar;..\dist\deploy\gp_basic_cm_common.jar;..\lib\gp_basic_cm_common.jar
+; .caproot=..\..\shared;..
+
+;test Cases name as per the test suite
+;Example 
+;test.gp_basic_cm.trex.training.commands.GP_Select_Get_Set_Status_Scenario.Gp_Select01_ISD
+
+[Terminal/Aliases] 
+JavaCardISOTerminal=VOPSocket/VOP-2000
+;JavaCardISOTerminal=VOPSocket/VOP-42101
+;JavaCardISOTerminal=IFDSIM-PCSC/OmniKey-0
+;OmniKey reader ( USB) settings
+;JavaCardISOTerminal=PCSC/OmniKey-0
+;JavaCardISOTerminal=IFDSIM-PCSC/OmniKey
+
+; CCR5 reader ( Serial Port) settings
+;JavaCardISOTerminal=IFDSIM-ISO7816/CCR5-3
+
+[Logging/CoreLoggingHandler]
+OutputConsole=yes
+OutputFile=Default_Test_result.txt
+
+
+[DataManager/JCApplicationManager]
+;LoadBlockSize=239
+;LoadDescriptorComponent=no
+LoadDebugComponent=yes
+;AdjustDirectoryComponent=yes
+
+
+
